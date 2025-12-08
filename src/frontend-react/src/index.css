@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+:root {
+  /* --- Theme: Professional (Default) --- */
+  --font-main: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Inter', sans-serif;
+
+  /* Colors */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-text: #ffffff;
+  --secondary: #64748b;
+  --accent: #f59e0b;
+  --success: #10b981;
+  --error: #ef4444;
+  --warning: #d97706;
+
+  /* Backgrounds & Surfaces */
+  --bg-body: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-secondary: #f1f5f9;
+  --bg-input: #ffffff;
+  --bg-dots: transparent;
+
+  /* Text Colors */
+  --text-main: #0f172a;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+
+  /* Borders & Shadows */
+  --border-color: #e2e8f0;
+  --border-width: 1px;
+  --border-radius: 12px;
+  --border-radius-sm: 6px;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-hard: 0 0 0 0 transparent;
+
+  /* Effects */
+  --backdrop-blur: 0px;
+  --header-bg: rgba(255, 255, 255, 0.9);
+  --marquee-display: none;
+}
+
+/* --- DARK MODE OVERRIDES --- */
+[data-mode="dark"] {
+  --bg-body: #0f172a;
+  --bg-surface: #1e293b;
+  --bg-surface-secondary: #334155;
+  --bg-input: #1e293b;
+  --text-main: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --border-color: #334155;
+  --header-bg: rgba(30, 41, 59, 0.9);
+}
+
+/* --- THEME: NEOBRUTALISM (GEN Z EDITION) --- */
+[data-theme="neobrutalism"] {
+  /* Typography */
+  --font-main: 'Space Grotesk', sans-serif;
+  --font-display: 'JetBrains Mono', monospace;
+
+  /* Hard Geometry */
+  --border-radius: 0px;
+  --border-radius-sm: 0px;
+  --border-width: 3px;
+  --border-color: #000000;
+
+  /* Aggressive Shadows */
+  --shadow-sm: 2px 2px 0px 0px #000000;
+  --shadow-md: 6px 6px 0px 0px #000000;
+  --shadow-lg: 10px 10px 0px 0px #000000;
+  --shadow-hard: 8px 8px 0px 0px #000000;
+
+  /* High Contrast / Acid Colors */
+  --primary: #ccff00;
+  --primary-hover: #b3e600;
+  --primary-text: #000000;
+  --secondary: #ffffff;
+  --accent: #ff00ff;
+  --error: #ff4444;
+  --success: #00ff9d;
+
+  /* Retro Backgrounds */
+  --bg-body: #f0f0f0;
+  --bg-surface: #ffffff;
+  --bg-surface-secondary: #e6e6e6;
+  --bg-input: #ffffff;
+  --bg-dots: radial-gradient(#000 1px, transparent 1px);
+
+  --text-main: #000000;
+  --text-secondary: #333333;
+  --text-muted: #666666;
+  --header-bg: #ffffff;
+  --marquee-display: block;
+}
+
+[data-theme="neobrutalism"][data-mode="dark"] {
+  --bg-body: #1a1a1a;
+  --bg-surface: #2d2d2d;
+  --bg-surface-secondary: #000000;
+  --border-color: #ffffff;
+  --text-main: #ffffff;
+  --text-secondary: #eeeeee;
+  --text-muted: #aaaaaa;
+  --primary: #ccff00;
+  --primary-text: #000000;
+  --shadow-sm: 2px 2px 0px 0px #ffffff;
+  --shadow-md: 6px 6px 0px 0px #ffffff;
+  --shadow-lg: 10px 10px 0px 0px #ccff00;
+  --shadow-hard: 8px 8px 0px 0px #ffffff;
+  --bg-dots: radial-gradient(#555 1px, transparent 1px);
+  --header-bg: #2d2d2d;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-main);
+  background: var(--bg-body);
+  background-image: var(--bg-dots);
+  background-size: 24px 24px;
+  color: var(--text-main);
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Utility classes */
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+/* Animations */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
