@@ -48,7 +48,8 @@ from src.backend.api.workflow_metrics_endpoints import router as workflow_metric
 app.include_router(workflow_metrics_router, prefix="/api")
 
 # --- Static Files and Root Endpoint ---
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
+# Serve the built React app from frontend-react/dist
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend-react", "dist")
 ROBOT_TESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "robot_tests")
 
 # Create robot_tests directory if it doesn't exist
@@ -56,7 +57,19 @@ os.makedirs(ROBOT_TESTS_DIR, exist_ok=True)
 
 # Mount static files
 app.mount("/reports", StaticFiles(directory=ROBOT_TESTS_DIR), name="reports")
+
+# Serve React App
+# We need to handle SPA routing by catching 404s and serving index.html,
+# but for now, simple static serving of the build folder works for the root.
+# FastAPI's StaticFiles with html=True serves index.html for root, but for other routes like /metrics
+# we might need a catch-all.
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+
+# Catch-all for SPA routing (to allow direct navigation to /metrics)
+from fastapi.responses import FileResponse
+@app.exception_handler(404)
+async def custom_404_handler(_, __):
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 @app.on_event("startup")
 async def startup_event():
