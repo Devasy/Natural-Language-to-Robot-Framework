@@ -6,17 +6,32 @@ import MetricsPage from './pages/MetricsPage';
 
 function App() {
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'professional');
-  const [mode, setMode] = useState(localStorage.getItem('mode') || 'light');
 
+  const [mode, setMode] = useState(() => {
+    const savedMode = localStorage.getItem('mode');
+    if (savedMode) return savedMode;
+
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // We don't persist automatically here to respect user's choice not to choose yet,
+        // or we can persist. The requirement said "call setMode... and also persist".
+        // If we persist here, it works.
+        // But better to just return 'dark' and let user interactions persist if needed,
+        // OR if the goal is to "detect and save preference", we do:
+        localStorage.setItem('mode', 'dark');
+        return 'dark';
+    }
+    return 'light';
+  });
+
+  // Effect for theme
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    document.documentElement.setAttribute('data-mode', mode);
+  }, [theme]);
 
-    // Check system preference if mode not set
-    if (!localStorage.getItem('mode') && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        setMode('dark');
-    }
-  }, [theme, mode]);
+  // Effect for mode (sync to DOM)
+  useEffect(() => {
+    document.documentElement.setAttribute('data-mode', mode);
+  }, [mode]);
 
   return (
     <Router>
