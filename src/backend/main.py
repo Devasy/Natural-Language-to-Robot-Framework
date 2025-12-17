@@ -8,10 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 # ========================================
 # FIX: Unicode/Emoji Encoding on Windows
 # ========================================
-# Reconfigure stdout/stderr to use UTF-8 encoding
-# This fixes UnicodeEncodeError for emojis (🚀, 🐳, etc.) in logs
+# Reconfigure stdout/stderr to use UTF-8 encoding to support emojis (e.g. 🚀, 🐳).
 if sys.platform.startswith('win'):
     import io
+    import os
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
     os.environ['PYTHONIOENCODING'] = 'utf-8'

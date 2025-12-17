@@ -31,4 +31,4 @@ chromadb==0.4.22
 # sentence-transformers: Generate embeddings for semantic similarity search
 sentence-transformers==2.2.2
 # numpy: Required by sentence-transformers for vector operations and similarity calculations
-numpy==1.24.3
+numpy>=1.26.4
