@@ -2,7 +2,7 @@
 ChromaDB vector store for keyword embeddings and semantic search.
 
 This module provides persistent storage and semantic search for Robot Framework
-keywords using ChromaDB with sentence-transformers embeddings.
+keywords using ChromaDB with embeddings.
 """
 
 import json
@@ -46,21 +46,10 @@ class KeywordVectorStore:
             )
             
             # Initialize embedding function
-            # Try to use SentenceTransformerEmbeddingFunction if available
-            try:
-                try:
-                    # Try ChromaDB 0.5.x API first (model_name parameter)
-                    self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-                        model_name="all-MiniLM-L6-v2"
-                    )
-                except TypeError:
-                    # Fallback for ChromaDB 0.4.x API (no model_name parameter)
-                    self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction()
-            except ValueError:
-                logger.warning("sentence-transformers not installed. Falling back to default embedding function.")
-                # If sentence-transformers is missing, use DefaultEmbeddingFunction if available,
-                # otherwise rely on ChromaDB's default behavior or fail gracefully if feature is used.
-                self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
+            # Use DefaultEmbeddingFunction (which uses ONNX Runtime with all-MiniLM-L6-v2)
+            # This avoids the heavy dependency on sentence-transformers and pytorch
+            logger.info("Using ChromaDB default embedding function (ONNX Runtime)")
+            self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
             
             logger.info(f"ChromaDB initialized at {persist_directory}")
             
