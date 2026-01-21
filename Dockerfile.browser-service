@@ -38,6 +38,7 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
 # Install system dependencies for Playwright and Chrome (runtime only, no build tools)
+# Multi-arch support: Only install Google Chrome on AMD64
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
@@ -65,16 +66,22 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils && \
-    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg && \
-    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends google-chrome-stable && \
+    # Logic to install Chrome only on amd64
+    if [ "$(uname -m)" = "x86_64" ]; then \
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg && \
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends google-chrome-stable; \
+    else \
+        echo "Skipping Google Chrome installation on $(uname -m). Using Playwright Chromium."; \
+    fi && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc/* /usr/share/man/* /tmp/*
 
 # Copy installed Python packages from builder stage
 COPY --from=builder /build/install /usr/local
 
 # Install Playwright browsers (Chromium) - must be after copying Python packages
+# This installs the correct Chromium for the architecture (amd64 or arm64)
 RUN playwright install chromium
 
 # Copy application source code (needed for shared config imports)
