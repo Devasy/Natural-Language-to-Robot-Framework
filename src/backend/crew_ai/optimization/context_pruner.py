@@ -77,9 +77,15 @@ class ContextPruner:
             )
             
             # Initialize embedding function
-            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name=model_name
-            )
+            try:
+                # Try to use SentenceTransformerEmbeddingFunction if available
+                self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                    model_name=model_name
+                )
+            except (ValueError, TypeError, AttributeError) as e:
+                # Fallback if sentence_transformers is not installed
+                logger.warning(f"sentence-transformers embedding failed: {e}. Using DefaultEmbeddingFunction.")
+                self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
             
             # Create or get category collection
             self.collection = self.client.get_or_create_collection(

@@ -9,7 +9,6 @@ pydantic-settings
 PyYAML
 ollama
 crewai==1.8.1
-crewai[tools]
 langchain-google-genai
 langchain_community
 beautifulsoup4
@@ -25,8 +24,4 @@ playwright
 # ChromaDB Performance Optimization Dependencies (Requirement 7.1)
 # chromadb: Vector database for semantic keyword search and pattern learning storage
 chromadb>=0.6.0
-# sentence-transformers: Generate embeddings for semantic similarity search
-# Note: Using 3.0+ for compatibility with latest huggingface_hub
-sentence-transformers~=3.0.0
-# numpy: Required by sentence-transformers for vector operations and similarity calculations
-numpy~=1.26.0
+# sentence-transformers and numpy are implicit dependencies of chromadb when using default embedding function
