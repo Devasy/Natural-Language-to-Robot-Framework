@@ -28,13 +28,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Copy requirements file
 COPY src/backend/requirements.txt /build/requirements.txt
 
-# Install PyTorch CPU-only version first (to avoid downloading 2GB+ CUDA packages)
-# sentence-transformers depends on torch, so we install CPU version explicitly
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --prefix=/build/install --no-cache \
-    torch --index-url https://download.pytorch.org/whl/cpu
-
 # Install all Python dependencies to /build/install
+# Note: PyTorch/sentence-transformers removed, so no need for explicit CPU-only torch install
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --prefix=/build/install --no-cache -r /build/requirements.txt
 
