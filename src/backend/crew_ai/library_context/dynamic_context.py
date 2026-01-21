@@ -10,6 +10,7 @@ Uses in-memory caching to avoid repeated libdoc calls during server runtime.
 
 import json
 import logging
+import os
 import tempfile
 from pathlib import Path
 from typing import Dict, Optional
@@ -37,6 +38,8 @@ class DynamicLibraryDocumentation:
                          (e.g., 'SeleniumLibrary', 'Browser')
         """
         self.library_name = library_name
+        # Pre-generated specs directory
+        self.specs_dir = Path("/app/src/backend/library_specs")
     
     def get_library_documentation(self) -> Dict:
         """
@@ -56,6 +59,21 @@ class DynamicLibraryDocumentation:
             return _LIBRARY_DOC_CACHE[self.library_name]
         
         try:
+            # 1. Try to load from pre-generated JSON spec file first (Optimization)
+            spec_file = self.specs_dir / f"{self.library_name}.json"
+            if spec_file.exists():
+                logger.info(f"Loading pre-generated documentation for {self.library_name} from {spec_file}")
+                with open(spec_file, 'r', encoding='utf-8') as f:
+                    doc_data = json.load(f)
+
+                # Verify it has keywords
+                if doc_data.get('keywords'):
+                    _LIBRARY_DOC_CACHE[self.library_name] = doc_data
+                    return doc_data
+                else:
+                    logger.warning(f"Pre-generated spec for {self.library_name} appears empty, falling back to libdoc")
+
+            # 2. Fallback to libdoc extraction (requires library installation)
             from robot.libdoc import libdoc
             
             # Create temporary file for JSON output
@@ -81,7 +99,7 @@ class DynamicLibraryDocumentation:
             return doc_data
             
         except ImportError as e:
-            logger.error(f"Library {self.library_name} is not installed: {e}")
+            logger.error(f"Library {self.library_name} is not installed and no spec file found: {e}")
             raise ImportError(f"Library {self.library_name} not found. Please install it first.")
         
         except Exception as e:

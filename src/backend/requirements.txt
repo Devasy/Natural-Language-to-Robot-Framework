@@ -2,7 +2,6 @@ fastapi
 uvicorn
 python-dotenv
 robotframework
-robotframework-seleniumlibrary
 docker
 pydantic
 pydantic-settings
@@ -12,14 +11,11 @@ crewai==1.8.1
 langchain-google-genai
 langchain_community
 beautifulsoup4
-selenium
 webdriver-manager
 sse-starlette
 aiohttp
 requests
 langchain-ollama
-robotframework-browser[bb]
-playwright
 
 # ChromaDB Performance Optimization Dependencies (Requirement 7.1)
 # chromadb: Vector database for semantic keyword search and pattern learning storage
