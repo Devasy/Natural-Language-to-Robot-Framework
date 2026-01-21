@@ -38,8 +38,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================================
 # Install heavy documentation dependencies only in builder stage
 # This allows us to remove them from the runtime image
+# Note: Using --system to install into the builder's system python since we don't need these in the final image
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install \
+    uv pip install --system \
     robotframework-browser \
     playwright \
     robotframework-seleniumlibrary \
