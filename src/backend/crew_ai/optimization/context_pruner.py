@@ -61,7 +61,7 @@ class ContextPruner:
         Initialize with ChromaDB for semantic classification.
         
         Args:
-            model_name: Name of sentence-transformers model to use
+            model_name: Name of sentence-transformers model to use (ignored if using default embedding)
             persist_directory: Path to ChromaDB storage directory
         """
         logger.info(f"Initializing ContextPruner with ChromaDB at {persist_directory}")
@@ -77,9 +77,9 @@ class ContextPruner:
             )
             
             # Initialize embedding function
-            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name=model_name
-            )
+            # Use DefaultEmbeddingFunction (which uses ONNX Runtime with all-MiniLM-L6-v2)
+            logger.info("Using ChromaDB default embedding function (ONNX Runtime)")
+            self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
             
             # Create or get category collection
             self.collection = self.client.get_or_create_collection(

@@ -28,15 +28,33 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Copy requirements file
 COPY src/backend/requirements.txt /build/requirements.txt
 
-# Install PyTorch CPU-only version first (to avoid downloading 2GB+ CUDA packages)
-# sentence-transformers depends on torch, so we install CPU version explicitly
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --prefix=/build/install --no-cache \
-    torch --index-url https://download.pytorch.org/whl/cpu
-
 # Install all Python dependencies to /build/install
+# Note: PyTorch/sentence-transformers removed, so no need for explicit CPU-only torch install
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --prefix=/build/install --no-cache -r /build/requirements.txt
+
+# ============================================================================
+# OPTIMIZATION: Pre-generate Library Documentation
+# ============================================================================
+# Install heavy documentation dependencies only in builder stage
+# This allows us to remove them from the runtime image
+# Note: Using --system to install into the builder's system python since we don't need these in the final image
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system \
+    robotframework-browser \
+    playwright \
+    robotframework-seleniumlibrary \
+    selenium
+
+# Create specs directory
+RUN mkdir -p /build/specs
+
+# Generate documentation using libdoc
+# Note: Browser library requires init, but libdoc might work without full browser binaries
+# if it only inspects signatures. If it fails, we might need 'rfbrowser init' which is heavy.
+# Trying libdoc directly first.
+RUN python -m robot.libdoc Browser /build/specs/Browser.json --format JSON || echo "WARNING: Browser doc generation failed"
+RUN python -m robot.libdoc SeleniumLibrary /build/specs/SeleniumLibrary.json --format JSON || echo "WARNING: SeleniumLibrary doc generation failed"
 
 # ============================================================================
 # STAGE 2: Runtime
@@ -63,6 +81,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Copy installed Python packages from builder stage
 COPY --from=builder /build/install /usr/local
+
+# Copy pre-generated library documentation
+COPY --from=builder /build/specs /app/src/backend/library_specs
 
 # Copy application source code
 COPY src/ /app/src/

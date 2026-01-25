@@ -2,34 +2,22 @@ fastapi
 uvicorn
 python-dotenv
 robotframework
-robotframework-seleniumlibrary
 docker
 pydantic
 pydantic-settings
 PyYAML
 ollama
-crewai
-crewai[tools]
+crewai==1.8.1
 langchain-google-genai
 langchain_community
 beautifulsoup4
-selenium
 webdriver-manager
 sse-starlette
 aiohttp
 requests
-flask
 langchain-ollama
-browser_use==0.11.2
-robotframework-browser[bb]
-playwright
-browser-service>=1.0.0
 
 # ChromaDB Performance Optimization Dependencies (Requirement 7.1)
 # chromadb: Vector database for semantic keyword search and pattern learning storage
-chromadb~=0.5.0
-# sentence-transformers: Generate embeddings for semantic similarity search
-# Note: Using 3.0+ for compatibility with latest huggingface_hub
-sentence-transformers~=3.0.0
-# numpy: Required by sentence-transformers for vector operations and similarity calculations
-numpy~=1.26.0
+chromadb>=0.6.0
+# sentence-transformers and numpy are implicit dependencies of chromadb when using default embedding function
