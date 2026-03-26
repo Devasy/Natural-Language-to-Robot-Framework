@@ -37,6 +37,7 @@ on:
 env:
   REGISTRY: docker.io
   IMAGE_NAME: monkscode/nlrf
+  BASE_BROWSER_FALLBACK: monkscode/nlrf:base-browser-latest
 
 jobs:
   build-base-browser:
@@ -210,7 +211,7 @@ jobs:
           file: ./Dockerfile.browser-service
           push: true
           build-args: |
-            BASE_IMAGE=${{ needs.build-base-browser.outputs.base_image_tag }}
+            BASE_IMAGE=${{ needs.build-base-browser.outputs.base_image_tag || env.BASE_BROWSER_FALLBACK }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:browser-service-buildcache
@@ -272,7 +273,7 @@ jobs:
           file: ./Dockerfile.test-runner
           push: true
           build-args: |
-            BASE_IMAGE=${{ needs.build-base-browser.outputs.base_image_tag }}
+            BASE_IMAGE=${{ needs.build-base-browser.outputs.base_image_tag || env.BASE_BROWSER_FALLBACK }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test-runner-buildcache
