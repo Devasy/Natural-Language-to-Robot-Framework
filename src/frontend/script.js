@@ -241,6 +241,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return getCodeContentRaw().trim();
     }
 
+    // SECURITY NOTE (CodeQL js/xss-through-dom):
+    // This function uses innerHTML for highlighted content, but it is SAFE because:
+    // 1. applySyntaxHighlighting() calls escapeHtml() on ALL user-derived content
+    // 2. escapeHtml() properly escapes: & < > " ' to prevent HTML injection
+    // 3. Only safe, predefined class names (rf-section, rf-keyword, etc.) are used
+    // The data flow from innerText -> innerHTML is sanitized through escapeHtml().
     function setCodeContent(code, highlighted = false) {
         robotCodeContent = code;
 
@@ -477,13 +483,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const redoStack = [];
     const HISTORY_LIMIT = 100;
     let historyDebounceTimer = null;
-    let currentSnapshot = {
-        code: '',
-        cursor: 0
-    };
 
-    // Initialize snapshot on load - synchronous to avoid race conditions
-    currentSnapshot = {
+    // Initialize snapshot with current code content
+    let currentSnapshot = {
         code: getCodeContentRaw(),
         cursor: 0
     };
@@ -789,6 +791,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Hide both log sections
         generationLogsSection.style.display = 'none';
         executionLogsSection.style.display = 'none';
+
+        // Reset feedback panel
+        hideFeedbackPanel();
 
         updateUI();
     }
@@ -1158,31 +1163,62 @@ document.addEventListener('DOMContentLoaded', () => {
         const exitCodeMatch = rawLog.match(/Robot Framework Test Execution \(Exit Code: (\d+)\)/i);
         const exitCode = exitCodeMatch ? exitCodeMatch[1] : null;
 
-        // Extract suite name - simplified regex to avoid ReDoS
-        // Changed from: /Suite:\s*([^\s]+(?:\s+[^\s]+)*?)(?=\s+Test:|$)/i
-        const suiteMatch = rawLog.match(/Suite:\s*([^\n]+?)\s+Test:/i);
-        const suiteName = suiteMatch ? suiteMatch[1].trim() : 'Unknown';
+        // Extract suite name - using string methods to avoid ReDoS (SonarQube S5852)
+        let suiteName = 'Unknown';
+        const lowerLog = rawLog.toLowerCase();
+        const suiteIdx = lowerLog.indexOf('suite:');
+        if (suiteIdx !== -1) {
+            const afterSuite = suiteIdx + 6; // 'suite:'.length
+            const testIdx = lowerLog.indexOf('test:', afterSuite);
+            if (testIdx !== -1) {
+                suiteName = rawLog.slice(afterSuite, testIdx).trim();
+            }
+        }
 
-        // Extract test name and status - simplified regex to avoid ReDoS
-        // Changed from: /Test:\s*(.+?)\s*-\s*(PASS|FAIL)/i
-        const testMatch = rawLog.match(/Test:\s*([^-]+)\s*-\s*(PASS|FAIL)/i);
-        const testName = testMatch ? testMatch[1].trim() : 'Unknown';
-        // BUG FIX: Derive testStatus from failed count (below) instead of testMatch[2]
+        // Extract test name and status - using string methods to avoid ReDoS (SonarQube S5852)
+        let testName = 'Unknown';
+        let testStatusFromMatch = 'UNKNOWN';
+        const testKeywordIdx = lowerLog.indexOf('test:', suiteIdx !== -1 ? suiteIdx + 6 : 0);
+        if (testKeywordIdx !== -1) {
+            const afterTest = testKeywordIdx + 5; // 'test:'.length
+            const restAfterTest = rawLog.slice(afterTest);
+            // Find ' - PASS' or ' - FAIL' pattern
+            const passIdx = restAfterTest.toUpperCase().indexOf(' - PASS');
+            const failIdx = restAfterTest.toUpperCase().indexOf(' - FAIL');
+            let statusIdx = -1;
+            if (passIdx !== -1 && (failIdx === -1 || passIdx < failIdx)) {
+                statusIdx = passIdx;
+                testStatusFromMatch = 'PASS';
+            } else if (failIdx !== -1) {
+                statusIdx = failIdx;
+                testStatusFromMatch = 'FAIL';
+            }
+            if (statusIdx !== -1) {
+                testName = restAfterTest.slice(0, statusIdx).trim();
+            }
+        }
+        // BUG FIX: Derive testStatus from failed count (below) instead of testStatusFromMatch
         // because the Test line can incorrectly show PASS when results show failures
 
-        // Extract results - simplified regex to avoid ReDoS
-        // Changed from: /Results?:\s*(\d+)\s*passed,\s*(\d+)\s*failed/i
+        // Extract results - this regex is safe (no overlapping quantifiers)
         const resultsMatch = rawLog.match(/Results?:\s*(\d+) passed, (\d+) failed/i);
         const passed = resultsMatch ? resultsMatch[1] : '0';
         const failed = resultsMatch ? resultsMatch[2] : '0';
-        const testStatus = parseInt(failed) > 0 ? 'FAIL' : (testMatch ? testMatch[2].toUpperCase() : 'UNKNOWN');
-        // Extract log path
-        const logPathMatch = rawLog.match(/Detailed logs available in:\s*(.+?)(?:\s*$|$)/i);
-        let logPath = logPathMatch ? logPathMatch[1].trim() : null;
+        const testStatus = parseInt(failed) > 0 ? 'FAIL' : testStatusFromMatch;
 
-        // Clean up the log path - remove any trailing whitespace or characters
-        if (logPath) {
-            logPath = logPath.replace(/\s+$/, '');
+        // Extract log path - using string methods to avoid ReDoS (SonarQube S5852)
+        let logPath = null;
+        const logPathKeyword = 'detailed logs available in:';
+        const logPathIdx = lowerLog.indexOf(logPathKeyword);
+        if (logPathIdx !== -1) {
+            const afterLogPath = logPathIdx + logPathKeyword.length;
+            // Extract to end of line or end of string
+            const newlineIdx = rawLog.indexOf('\n', afterLogPath);
+            if (newlineIdx !== -1) {
+                logPath = rawLog.slice(afterLogPath, newlineIdx).trim();
+            } else {
+                logPath = rawLog.slice(afterLogPath).trim();
+            }
         }
 
         // Build formatted HTML
@@ -1287,6 +1323,9 @@ document.addEventListener('DOMContentLoaded', () => {
             currentState = UIState.IDLE;
             updateUI();
             updateLogSectionsVisibility();
+            // Show feedback panel (only when user query exists)
+            const testPassed = statusBadge.textContent.toLowerCase().includes('passed');
+            showFeedbackPanel(testPassed ? 'passed' : 'failed');
             // Auto-scroll to execution logs to show the results
             setTimeout(() => {
                 executionLogsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1305,7 +1344,173 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Copy code button handler
+    // -----------------------------------------------------------------
+    // Feedback Panel Logic (DAY_08)
+    // -----------------------------------------------------------------
+
+    const feedbackPanel = document.getElementById('feedback-panel');
+    const feedbackPass = document.getElementById('feedback-pass');
+    const feedbackPassLink = document.getElementById('feedback-pass-link');
+    const feedbackPassDetail = document.getElementById('feedback-pass-detail');
+    const feedbackPassText = document.getElementById('feedback-pass-text');
+    const feedbackFail = document.getElementById('feedback-fail');
+    const feedbackTextArea = document.getElementById('feedback-text');
+    const feedbackCharCount = document.getElementById('feedback-char-count');
+    const feedbackThanks = document.getElementById('feedback-thanks');
+    const btnSubmitFeedback = document.getElementById('btn-submit-feedback');
+    const btnSkipFeedback = document.getElementById('btn-skip-feedback');
+    const btnSubmitPassFeedback = document.getElementById('btn-submit-pass-feedback');
+    const btnCancelPassFeedback = document.getElementById('btn-cancel-pass-feedback');
+
+    /**
+     * Show the feedback panel after test execution.
+     * Context-adaptive: pass → subtle link, fail → prominent card.
+     * Guard: only shown when currentUserQuery exists (no paste-and-execute).
+     */
+    function showFeedbackPanel(testStatus) {
+        if (!currentUserQuery || !currentUserQuery.trim()) {
+            return; // No feedback for paste-and-execute
+        }
+        if (!feedbackPanel) return;
+
+        hideFeedbackPanel();
+        feedbackPanel.style.display = 'block';
+
+        if (testStatus === 'passed') {
+            feedbackPass.style.display = 'flex';
+        } else {
+            feedbackFail.style.display = 'block';
+        }
+    }
+
+    /**
+     * Hide and reset all feedback panel states.
+     */
+    function hideFeedbackPanel() {
+        if (!feedbackPanel) return;
+        feedbackPanel.style.display = 'none';
+        if (feedbackPass) feedbackPass.style.display = 'none';
+        if (feedbackPassDetail) feedbackPassDetail.style.display = 'none';
+        if (feedbackFail) feedbackFail.style.display = 'none';
+        if (feedbackThanks) feedbackThanks.style.display = 'none';
+        // Reset textarea
+        if (feedbackTextArea) feedbackTextArea.value = '';
+        if (feedbackPassText) feedbackPassText.value = '';
+        if (feedbackCharCount) feedbackCharCount.textContent = '0';
+        // Reset buttons
+        if (btnSubmitFeedback) {
+            btnSubmitFeedback.disabled = false;
+            btnSubmitFeedback.classList.remove('success');
+            btnSubmitFeedback.textContent = '🚀 Submit Feedback';
+        }
+        if (btnSubmitPassFeedback) {
+            btnSubmitPassFeedback.disabled = false;
+            btnSubmitPassFeedback.classList.remove('success');
+            btnSubmitPassFeedback.textContent = 'Submit';
+        }
+    }
+
+    /**
+     * Submit feedback to the backend API.
+     */
+    async function submitFeedback(feedbackType, feedbackText, submitBtn) {
+        const wfId = currentWorkflowId || 'unknown';
+
+        // Disable button and show loading
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting...';
+        }
+
+        try {
+            const response = await fetch('/api/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workflow_id: wfId,
+                    feedback_text: feedbackText,
+                    feedback_type: feedbackType,
+                }),
+            });
+
+            const result = await response.json();
+            console.log('[Feedback] Response:', result);
+
+            // Show success state
+            if (submitBtn) {
+                submitBtn.classList.add('success');
+                submitBtn.textContent = '✅ Sent!';
+            }
+
+            // Transition to thanks after short delay
+            setTimeout(() => {
+                if (feedbackPass) feedbackPass.style.display = 'none';
+                if (feedbackPassDetail) feedbackPassDetail.style.display = 'none';
+                if (feedbackFail) feedbackFail.style.display = 'none';
+                if (feedbackThanks) feedbackThanks.style.display = 'block';
+            }, 600);
+
+        } catch (err) {
+            console.error('[Feedback] Error:', err);
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '❌ Retry';
+            }
+        }
+    }
+
+    // --- Feedback event listeners ---
+
+    // Fail state: Submit feedback
+    if (btnSubmitFeedback) {
+        btnSubmitFeedback.addEventListener('click', () => {
+            const text = feedbackTextArea ? feedbackTextArea.value.trim() : '';
+            submitFeedback('completely_wrong', text, btnSubmitFeedback);
+        });
+    }
+
+    // Fail state: Skip feedback
+    if (btnSkipFeedback) {
+        btnSkipFeedback.addEventListener('click', () => {
+            // Auto-record as completely_wrong with no text
+            submitFeedback('completely_wrong', '', null);
+            if (feedbackFail) feedbackFail.style.display = 'none';
+            if (feedbackThanks) feedbackThanks.style.display = 'block';
+        });
+    }
+
+    // Pass state: "Something not right?" link
+    if (feedbackPassLink) {
+        feedbackPassLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (feedbackPassDetail) feedbackPassDetail.style.display = 'block';
+        });
+    }
+
+    // Pass detail: Submit feedback
+    if (btnSubmitPassFeedback) {
+        btnSubmitPassFeedback.addEventListener('click', () => {
+            const text = feedbackPassText ? feedbackPassText.value.trim() : '';
+            submitFeedback('close_enough', text, btnSubmitPassFeedback);
+        });
+    }
+
+    // Pass detail: Cancel
+    if (btnCancelPassFeedback) {
+        btnCancelPassFeedback.addEventListener('click', () => {
+            if (feedbackPassDetail) feedbackPassDetail.style.display = 'none';
+        });
+    }
+
+    // Character counter for feedback textarea
+    if (feedbackTextArea) {
+        feedbackTextArea.addEventListener('input', () => {
+            if (feedbackCharCount) {
+                feedbackCharCount.textContent = feedbackTextArea.value.length;
+            }
+        });
+    }
+
     copyCodeBtn.addEventListener('click', async () => {
         const code = getCodeContent();
         try {
@@ -1380,7 +1585,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Syntax highlighting function
+    // SECURITY NOTE (CodeQL js/xss-through-dom):
+    // This function builds HTML strings and passes to setCodeContent() which uses innerHTML.
+    // This is SAFE because escapeHtml() is called on ALL user-derived content before
+    // interpolation into HTML. The only unescaped values are predefined class names.
     function applySyntaxHighlighting(code) {
         const lines = code.split('\n');
 
@@ -1397,7 +1605,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const keyword = match[1];
                     const rest = match[2];
                     const restHighlighted = escapeHtml(rest).replace(/(\$\{[^}]+\})/g, '<span class="rf-variable">$1</span>');
-                    highlightedLine = `<span class="rf-keyword">${keyword}</span>${restHighlighted}`;
+                    highlightedLine = `<span class="rf-keyword">${escapeHtml(keyword)}</span>${restHighlighted}`;
                 } else {
                     highlightedLine = escapeHtml(line);
                 }
@@ -1407,7 +1615,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const varName = varMatch[1];
                     const separator = varMatch[2];
                     const varValue = varMatch[3];
-                    highlightedLine = `<span class="rf-variable">${escapeHtml(varName)}</span>${separator}${escapeHtml(varValue)}`;
+                    highlightedLine = `<span class="rf-variable">${escapeHtml(varName)}</span>${escapeHtml(separator)}${escapeHtml(varValue)}`;
                 } else {
                     highlightedLine = `<span class="rf-variable">${escapeHtml(line)}</span>`;
                 }

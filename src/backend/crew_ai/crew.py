@@ -96,12 +96,18 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
         )
     
     # Initialize optimization system if enabled
-    optimized_context = None
     keyword_search_tool = None
     smart_provider = None
     baseline_context_tokens = 0
     optimized_context_tokens = 0
     
+    # Build properly prefixed model name for LiteLLM token counting
+    # Online models already have prefix (e.g., "gemini/gemini-2.5-flash")
+    # Local models need prefix added (e.g., "llama3" -> "ollama/llama3")
+    token_model = model_name if model_provider != "local" else f"ollama/{model_name}"
+    
+    hint_metadata = {}
+
     if settings.OPTIMIZATION_ENABLED:
         try:
             logger.info("🚀 Optimization system enabled - initializing components")
@@ -109,9 +115,26 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
                 KeywordVectorStore,
                 QueryPatternMatcher,
                 SmartKeywordProvider,
-                ContextPruner
+                ContextPruner,
             )
-            
+
+            # Get learning db_conn from FeedbackLoop singleton (shared connection)
+            # Must be initialized BEFORE QueryPatternMatcher and SmartKeywordProvider
+            learning_db_conn = None
+            try:
+                from src.backend.crew_ai.optimization.learning_registry import (
+                    get_feedback_loop,
+                )
+                feedback_loop = get_feedback_loop()
+                if feedback_loop is not None:
+                    learning_db_conn = feedback_loop.execution_memory.conn
+                    logger.info("✅ Learning DB connection obtained from FeedbackLoop singleton")
+                else:
+                    logger.warning("⚠️ FeedbackLoop unavailable — learning hints will be disabled")
+            except Exception as e:
+                logger.warning(f"⚠️ Learning DB init failed: {e}")
+                logger.warning("   Learning hints will be disabled")
+
             # Initialize ChromaDB vector store
             vector_store = KeywordVectorStore(
                 persist_directory=settings.OPTIMIZATION_CHROMA_DB_PATH
@@ -122,7 +145,7 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
             
             # Initialize pattern matcher (with ChromaDB for query embeddings)
             pattern_matcher = QueryPatternMatcher(
-                db_path=settings.OPTIMIZATION_PATTERN_DB_PATH,
+                db_conn=learning_db_conn,
                 chroma_store=vector_store  # Pass ChromaDB store for query embeddings
             )
             
@@ -138,8 +161,8 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to initialize context pruner: {e}")
                     logger.warning("   Context pruning will be disabled")
-            
-            # Initialize smart keyword provider with metrics
+
+            # Initialize smart keyword provider with metrics + learning DB
             smart_provider = SmartKeywordProvider(
                 library_context=library_context,
                 pattern_matcher=pattern_matcher,
@@ -147,30 +170,52 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
                 context_pruner=context_pruner,
                 pruning_enabled=settings.OPTIMIZATION_CONTEXT_PRUNING_ENABLED,
                 pruning_threshold=settings.OPTIMIZATION_CONTEXT_PRUNING_THRESHOLD,
-                metrics=optimization_metrics
+                metrics=optimization_metrics,
+                db_conn=learning_db_conn,
             )
             
             # Calculate baseline context size (full context)
             baseline_context = library_context.code_assembly_context
-            baseline_context_tokens = count_tokens(baseline_context)
+            baseline_context_tokens = count_tokens(baseline_context, token_model)
             
             # Get optimized contexts for ALL agents
+            # URL extracted once, passed to all agents for domain-scoped hints
+            url = extract_url_from_query(query)
             logger.info("🎯 Generating optimized contexts for all agents...")
-            planner_context = smart_provider.get_agent_context(query, "planner")
-            # Identifier context skipped - element_identifier_agent doesn't use context
-            # It only needs batch_browser_automation tool, no keyword knowledge required
-            identifier_context = None
-            assembler_context = smart_provider.get_agent_context(query, "assembler")
-            validator_context = smart_provider.get_agent_context(query, "validator")
+            planner_result = smart_provider.get_agent_context(query, "planner", url=url)
+            assembler_result = smart_provider.get_agent_context(query, "assembler", url=url)
+            validator_result = smart_provider.get_agent_context(query, "validator", url=url)
+
+            planner_context = planner_result.context
+            assembler_context = assembler_result.context
+            validator_context = validator_result.context
+
+            # Capture hint metadata for future FeedbackLoop integration
+            hint_metadata = {
+                "planner": {"count": planner_result.hints_count, "sources": planner_result.hint_sources},
+                "assembler": {"count": assembler_result.hints_count, "sources": assembler_result.hint_sources},
+                "validator": {"count": validator_result.hints_count, "sources": validator_result.hint_sources},
+            }
+            total_hints = sum(r["count"] for r in hint_metadata.values())
+            if total_hints > 0:
+                logger.info(f"📚 Learning hints injected: {hint_metadata}")
+
+            # Build hint_context for task-level injection
+            hint_context = {}
+            if planner_result.hint_text:
+                hint_context["planner"] = planner_result.hint_text
+            if assembler_result.hint_text:
+                hint_context["assembler"] = assembler_result.hint_text
+            if validator_result.hint_text:
+                hint_context["validator"] = validator_result.hint_text
             
-            # Calculate total optimized tokens (skip None values)
-            planner_tokens = count_tokens(planner_context)
-            identifier_tokens = 0  # Not generated, saves ~50-100ms per workflow
-            assembler_tokens = count_tokens(assembler_context)
-            validator_tokens = count_tokens(validator_context)
+            # Calculate total optimized tokens
+            planner_tokens = count_tokens(planner_context, token_model)
+            assembler_tokens = count_tokens(assembler_context, token_model)
+            validator_tokens = count_tokens(validator_context, token_model)
             optimized_context_tokens = assembler_tokens  # For backward compatibility metric
             
-            logger.info(f"📊 Context sizes: Planner={planner_tokens}, Identifier=N/A (skipped), Assembler={assembler_tokens}, Validator={validator_tokens}")
+            logger.info(f"📊 Context sizes: Planner={planner_tokens}, Assembler={assembler_tokens}, Validator={validator_tokens}")
             
             # Track context reduction (using assembler as reference)
             if optimization_metrics:
@@ -192,31 +237,30 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
             logger.error(f"❌ Failed to initialize optimization system: {e}")
             logger.warning("⚠️ Falling back to baseline behavior (full context)")
             planner_context = None
-            identifier_context = None
             assembler_context = None
             validator_context = None
             keyword_search_tool = None
             smart_provider = None
             optimization_metrics = None
+            hint_context = {}
     else:
         logger.info("ℹ️ Optimization system disabled (OPTIMIZATION_ENABLED=False)")
         planner_context = None
-        identifier_context = None
         assembler_context = None
         validator_context = None
+        hint_context = {}
 
     # Initialize agents and tasks with library context and workflow_id
     agents = RobotAgents(
         model_provider, 
         model_name, 
         library_context,
-        assembler_context=assembler_context,  # Use consistent naming with other contexts
+        assembler_context=assembler_context,
         keyword_search_tool=keyword_search_tool,
         planner_context=planner_context,
-        identifier_context=identifier_context,
         validator_context=validator_context
     )
-    tasks = RobotTasks(library_context, workflow_id=workflow_id)
+    tasks = RobotTasks(library_context, workflow_id=workflow_id, hint_context=hint_context)
 
     # Define Agents (removed popup_strategy_agent - let BrowserUse handle popups contextually)
     step_planner_agent = agents.step_planner_agent()
@@ -252,37 +296,6 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
         logger.info(f"🏁 Crew execution finished - delegation cycle complete")
         logger.info(f"📊 Final LLM Stats: {formatting_monitor.get_stats()}")
         
-        # Capture per-agent token metrics for cost attribution
-        logger.info("📊 Capturing per-agent token metrics...")
-        per_agent_metrics = {}
-        agents_list = [
-            ("step_planner", step_planner_agent),
-            ("element_identifier", element_identifier_agent),
-            ("code_assembler", code_assembler_agent),
-            ("code_validator", code_validator_agent),
-        ]
-        
-        for agent_name, agent in agents_list:
-            try:
-                # Get cumulative token usage from the agent's LLM
-                usage = agent.llm.get_token_usage_summary()
-                per_agent_metrics[agent_name] = {
-                    'total_tokens': usage.total_tokens,
-                    'prompt_tokens': usage.prompt_tokens,
-                    'completion_tokens': usage.completion_tokens,
-                    'successful_requests': usage.successful_requests,
-                }
-                logger.info(f"   • {agent_name}: {usage.total_tokens} tokens "
-                           f"(prompt: {usage.prompt_tokens}, completion: {usage.completion_tokens})")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not get token usage for {agent_name}: {e}")
-                per_agent_metrics[agent_name] = {
-                    'total_tokens': 0,
-                    'prompt_tokens': 0,
-                    'completion_tokens': 0,
-                    'successful_requests': 0,
-                }
-        
         # NOTE: Pattern learning is NOT done here!
         # Learning should only happen AFTER test execution succeeds (test_status == "passed")
         # This ensures we only learn from validated, working code.
@@ -292,7 +305,7 @@ def run_crew(query: str, model_provider: str, model_name: str, library_type: str
         if optimization_metrics:
             logger.info("📊 Optimization metrics collected")
         
-        return result, crew, optimization_metrics, per_agent_metrics
+        return result, crew, optimization_metrics, hint_metadata
 
     except Exception as e:
         error_msg = str(e)
